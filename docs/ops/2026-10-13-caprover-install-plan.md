@@ -150,8 +150,8 @@ Expected: no docker path, `ls: cannot access '/captain'`, then `active` three ti
 
 - [ ] **Step 2: DNS from SysOps**
 
-Ask SysOps (Cloudflare owner) to create `*.dev.bots.ac` A <server-ip>, proxy status DNS only.
-Verify: `curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=captain.dev.bots.ac&type=A'` contains `"data":"<server-ip>"`. The box resolver returns <box-resolver-ip>, so always check through DoH.
+Ask SysOps (Cloudflare owner) to create `*.dev.bots.ac` A <server-ip>, proxy status DNS only (staging / CapRover root). For production: keep `*.bots.ac` A <server-ip>, and also add per-app records plus an apex record for `bots.ac`. Guard: CapRover's catch-all must return 404 for unknown hostnames. Decision (Dani 2026-10-16).
+Verify: `curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=captain.dev.bots.ac&type=A'` contains `"data":"<server-ip>"`. The box resolver returns <box-resolver-ip>, so always check through DoH. Also confirm a random unused name under `*.bots.ac` resolves but returns 404 from CapRover once nginx is up.
 Rollback: SysOps deletes the record.
 
 ### Task 2: Uninstall an existing CapRover (only if Task 1 found one)
@@ -248,10 +248,10 @@ Verify: a fresh browser login triggers a login alert email.
 
 Verify: after logging out and back in, an OTP prompt appears.
 
-- [ ] **Step 4: Limit the dashboard to the box and the tailnet (optional, recommended)**
+- [ ] **Step 4: Limit the dashboard to the box, the tailnet, and GitHub Actions (recommended)**
 
-In Settings → NGINX config, add `allow <box egress IP>; allow 100.64.0.0/10; deny all;` to the `captain.dev.bots.ac` server block, then save.
-Verify: from the box, `curl -sI https://captain.dev.bots.ac | head -1` returns `HTTP/2 200`; from any other network the dashboard returns 403.
+In Settings → NGINX config, allow `<box egress IP>`, `100.64.0.0/10`, and the current GitHub Actions IP ranges from `https://api.github.com/meta` (`actions` key), then `deny all;` on the `captain.dev.bots.ac` server block. Auto-refresh the Actions ranges on a schedule (for example a weekly cron that rewrites the allow lines from `meta` and reloads nginx). Decision (Dani 2026-10-16). Residual risk: those ranges are shared by all GitHub users, so protection rests on the CapRover password, 2FA and a deploy-only app token.
+Verify: from the box, `curl -sI https://captain.dev.bots.ac | head -1` returns `HTTP/2 200`; from a non-GitHub, non-tailnet network the dashboard returns 403; a GitHub Actions deploy reaches the dashboard.
 Rollback: restore the default NGINX config in the same screen. If that locks the dashboard out, follow "I've made a change to the Nginx config that broke the admin UI!" at https://caprover.com/docs/troubleshooting.html. Disable 2FA and alerts in the Pro screen; the TOTP seed stays in 1Password.
 
 ### Task 6: GHCR registry and test app via GitHub Actions
@@ -296,17 +296,18 @@ Rollback: delete the workflow and the app, then revoke the app token and the GHC
 
 ### Task 7: Encrypted backups
 
-- [ ] **Step 1: First CapRover backup**
+Decision (Dani 2026-10-16): primary design is the operating-rules restic path (Mac pull to iCloud plus RackNerd), with the bots.ac DB and attachments included. Drop R2. The Grok Bot box copy at `~/backups/grokbot` on the server is always kept, never dropped.
 
-Take a backup in Settings → Backup, download it, then `age -r "$(cat /workspace/backups/age.pub)" -o /workspace/backups/manage-bots-ac-2026-10-13/caprover-backup.tar.age <downloaded file> && shred -u <downloaded file>`.
-Verify: the `.age` file is non-empty, and a decrypt test with the 1Password key lists `config-captain.json`.
+- [ ] **Step 1: First CapRover backup (into the always-kept box copy)**
 
-- [ ] **Step 2: Weekly box-side pull of /captain/data, encrypted**
+Take a backup in Settings → Backup, download it, then store an age-encrypted copy under the server's `~/backups/grokbot/` tree (and optionally mirror to `/workspace/backups/manage-bots-ac-2026-10-13/` on the box). Example: `age -r "$(cat /workspace/backups/age.pub)" -o ~/backups/grokbot/caprover-backup.tar.age <downloaded file> && shred -u <downloaded file>` (run the write on the server path via SSH as needed).
+Verify: the `.age` file under `~/backups/grokbot/` is non-empty, and a decrypt test with the 1Password key lists `config-captain.json`. Confirm `~/backups/grokbot` still exists and was not pruned.
 
-Add a box cron entry (Sunday 03:00 ET):
-`0 3 * * 0 D=/workspace/backups/manage-bots-ac-$(date +\%F); mkdir -p -m 700 $D; R=$(cat /workspace/backups/age.pub); ssh manage.bots.ac 'sudo tar czf - /captain/data' | age -r "$R" > $D/captain-data.tgz.age; ls -dt /workspace/backups/manage-bots-ac-20* | tail -n +9 | xargs -r rm -rf`
-Verify: after the first run, `ls -la /workspace/backups/manage-bots-ac-*/` shows a fresh non-empty `.age` file, and one restore test of `/captain/data` decrypts cleanly.
-Rollback: remove the cron line.
+- [ ] **Step 2: Align with restic (rules section 6); keep the box copy**
+
+Wire CapRover `/captain/data` and the bots.ac DB dumps into the restic/Backrest job from the operating rules. Do not add R2. Keep publishing a weekly encrypted snapshot into `~/backups/grokbot` on the server (age tarball of `/captain/data` is fine); that path is never dropped when pruning other backup targets.
+Verify: restic includes the bots.ac DB dump; `ls ~/backups/grokbot` on the server still shows recent files after prune; no R2 remote is configured.
+Rollback: remove any new cron/restic paths that are wrong; never delete `~/backups/grokbot`.
 
 ### Task 8 (last phase): PR previews
 
@@ -325,7 +326,7 @@ Rollback: disable the workflow and delete every `pr-*` app.
 
 ## Decommission and full rollback checklist
 
-SysOps deletes `*.dev.bots.ac`, so a released IP can't be taken over. Then run Task 2 Step 2, `sudo systemctl disable --now fw-caprover`, revoke the GHCR PAT and app tokens, disable 2FA and remove the Pro key from the old install, and reboot to clear Docker's iptables chains. Restoring Phase 0 means running each task's own rollback in reverse order.
+SysOps deletes `*.dev.bots.ac` (and any production `*.bots.ac` / per-app / apex records that pointed at this host), so a released IP can't be taken over. Then run Task 2 Step 2, `sudo systemctl disable --now fw-caprover`, revoke the GHCR PAT and app tokens, disable 2FA and remove the Pro key from the old install, and reboot to clear Docker's iptables chains. Restoring Phase 0 means running each task's own rollback in reverse order.
 
 ## Risks not verified
 
@@ -336,7 +337,7 @@ SysOps deletes `*.dev.bots.ac`, so a released IP can't be taken over. Then run T
 ## Gaps / not covered
 
 - Monitoring and alerting: no uptime checks for `captain.dev.bots.ac`, CapRover apps or the host, and no disk or memory alerts.
-- Offsite encrypted backups: Task 7 keeps encrypted copies only on the box. There is no second location (e.g. R2) and no scheduled restore test for `/captain`.
+- Offsite encrypted backups: Task 7 follows the restic design (Mac + iCloud + RackNerd) and always keeps `~/backups/grokbot` on the server; R2 is dropped. A scheduled restore test for `/captain` is still needed.
 - CapRover update policy: no cadence, changelog review or digest bump procedure for CapRover, its nginx and certbot images, or the held Docker packages.
 - Ansvisor deploy: queued after this install. Not planned here.
 - Secret cleanup on the box: the 1Password service-account token file, the CLI configstore and any leftover temp files have no audit or rotation schedule. The service account's vault scope is not yet confirmed as read-only on Nebula.

@@ -16,9 +16,11 @@ Words used here:
 ## Decisions locked (2026-10-16)
 Dani said "Yes, use all recommended" at 4:53 AM ET. Final choices:
 
+Premortem decisions 1-6 (same day; see `2026-10-16-premortem.md`): SSH stays on the current `<ssh-port>` (rules previously used a wrong one-digit-different value); keep `*.bots.ac` plus per-app and apex records with CapRover catch-all 404; dashboard `captain.dev.bots.ac`; CI via auto-refreshed GitHub Actions IP ranges from `api.github.com/meta`; Postgres on localhost plus the tailnet IP after a fresh `pg_dump`; restic design plus the bots.ac DB, drop R2, always keep `~/backups/grokbot` on the server. Questions 7-20 remain open.
+
 - **Q1:** Close Postgres <pg-port> first, before anything else, after a fresh dump.
 - **Q2:** Bots use a `bot` user, own key, sudo only for read-only commands.
-- **Q3:** Public key-only SSH on <ssh-port-in-rules> + Servarica console + console password in 1Password.
+- **Q3:** Public key-only SSH on <ssh-port> + Servarica console + console password in 1Password.
 - **Q4:** fail2ban (simple, local).
 - **Q5:** Free Healthchecks.io/UptimeRobot plus heartbeat.
 - **Q6:** Already answered — Mac + iCloud (see Q-B).
@@ -46,12 +48,12 @@ Dani said "Yes, use all recommended" at 4:53 AM ET. Final choices:
 5. **Run heavy jobs with `nice`/`ionice`** (backups, scans, image builds) so the live apps stay fast.
 
 ## 1. Firewall (UFW + DOCKER-USER)
-6. **Default policy: deny incoming, allow outgoing, deny routed.** Allow in from the public internet only on **<ssh-port-in-rules>/tcp (SSH)**, **80/tcp**, **443/tcp**, and **<tailscale-udp-port>/udp (Tailscale direct connections, optional)**. Everything else gets blocked.
+6. **Default policy: deny incoming, allow outgoing, deny routed.** Allow in from the public internet only on **<ssh-port>/tcp (SSH)**, **80/tcp**, **443/tcp**, and **<tailscale-udp-port>/udp (Tailscale direct connections, optional)**. Everything else gets blocked.
 7. **Allow all traffic on the `tailscale0` interface** (`ufw allow in on tailscale0`). Private apps get reached this way.
 8. **Docker skips UFW**, so we also filter in the **DOCKER-USER** iptables chain using the `ufw-docker` method (rules go in `/etc/ufw/after.rules` and `after6.rules`, so they survive reboots and UFW reloads). Those rules: allow established connections, allow from `tailscale0` and the docker/swarm internal networks, allow public 80/443 to the CapRover nginx, and **drop everything else from the public interface**, including <setup-port>, <registry-port>, <swarm-gossip-port>, <vxlan-port>, <swarm-mgmt-port>, <pg-port>, <syncthing-gui-port>, <syncthing-port> and <cockpit-port>.
 9. **Rule of thumb for apps:** no container publishes a host port, apart from CapRover's own nginx (80/443). Apps get reached through CapRover's proxy. If an app truly needs a host port (Syncthing's <syncthing-port>), bind it to the **tailnet IP or 127.0.0.1**, never `0.0.0.0`.
 10. **IPv6 gets the same rules.** Keep `IPV6=yes` in `/etc/default/ufw` and copy every DOCKER-USER rule to `ip6tables`. Test from outside over IPv6 (`nmap -6`) as well as IPv4. If we don't need IPv6, the other option is to turn it off for Docker. See Q7.
-11. **Prove it from outside.** After every firewall change, run `nmap -Pn -p- manage.bots.ac` (v4 and v6) from a different server (for example the unused RackNerd box). Only 80, 443 and <ssh-port-in-rules> should show as open.
+11. **Prove it from outside.** After every firewall change, run `nmap -Pn -p- manage.bots.ac` (v4 and v6) from a different server (for example the unused RackNerd box). Only 80, 443 and <ssh-port> should show as open.
 
 ## 2. Private access (Tailscale)
 12. **Private only. These are never public:**
@@ -70,12 +72,12 @@ Dani said "Yes, use all recommended" at 4:53 AM ET. Final choices:
 
 **Default for anything new is private** until Dani says otherwise.
 
-13. **Admin UIs behind CapRover get two locks:** CapRover HTTP Basic Auth (or the app's own login with 2FA if it has one) **and** an nginx `allow 100.64.0.0/10; deny all;` block in the app's custom nginx config. Then even a leaked password isn't enough from the public internet.
-14. **Tailscale is a convenience, not the only way in.** SSH on <ssh-port-in-rules> stays reachable from the public internet, key-only (see rule 16). If Tailscale goes down, Dani still has public SSH. If SSH breaks too, she has Servarica's web console. **Don't** turn on Tailscale SSH as the only path, and don't bind sshd only to the tailnet IP.
+13. **Admin UIs behind CapRover get two locks:** CapRover HTTP Basic Auth (or the app's own login with 2FA if it has one) **and** an nginx `allow 100.64.0.0/10; deny all;` block in the app's custom nginx config. Then even a leaked password isn't enough from the public internet. **Exception for the CapRover dashboard only (`captain.dev.bots.ac`):** also allow GitHub Actions IP ranges from `api.github.com/meta` (auto-refreshed), so CI can deploy. Residual risk: those ranges are shared by all GitHub users, so protection rests on the CapRover password, 2FA and a deploy-only token. Decision (Dani 2026-10-16).
+14. **Tailscale is a convenience, not the only way in.** SSH on <ssh-port> stays reachable from the public internet, key-only (see rule 16). If Tailscale goes down, Dani still has public SSH. If SSH breaks too, she has Servarica's web console. **Don't** turn on Tailscale SSH as the only path, and don't bind sshd only to the tailnet IP.
 15. **Turn off Tailscale key expiry for this server** in the admin console, so it doesn't drop off the tailnet after 180 days. Turn on Tailscale ACLs so only Dani's devices (not every shared node) can reach <smb-port>, <cockpit-port> and <syncthing-gui-port>.
 
 ## 3. SSH hardening
-16. **Keys only, port <ssh-port-in-rules>.** Settings: `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin no`, `PubkeyAuthentication yes`, `AllowUsers dani bot`, `MaxAuthTries 3`. On Ubuntu 24.04, sshd uses **socket activation**. Set the port in `ssh.socket` (`ListenStream=<ssh-port-in-rules>`) with a systemd override, *as well as* checking `sshd_config.d`. If only `sshd_config` gets changed, the port can quietly stay at 22.
+16. **Keys only, port <ssh-port>.** Settings: `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin no`, `PubkeyAuthentication yes`, `AllowUsers dani bot`, `MaxAuthTries 3`. On Ubuntu 24.04, sshd uses **socket activation**. Set the port in `ssh.socket` (`ListenStream=<ssh-port>`) with a systemd override, *as well as* checking `sshd_config.d`. If only `sshd_config` gets changed, the port can quietly stay at 22.
 17. **Add keys the safe way** (sshid-authorized-keys skill). Download to a temp file, accept only `ssh-ed25519` lines, check `ssh-keygen -lf` against fingerprints Dani has pinned, add each key only if it's missing, then set `.ssh` to 700 and the file to 600. Never use `curl >> authorized_keys`.
 18. **Lockout-proof change routine:**
    (a) Keep **two SSH sessions open**.
@@ -84,32 +86,33 @@ Dani said "Yes, use all recommended" at 4:53 AM ET. Final choices:
    (d) Test a **third, fresh** login from a new terminal before closing anything.
    (e) For firewall changes, schedule an automatic undo first: `echo "ufw disable" | at now + 10 minutes`, or `iptables-restore` from a saved copy. Cancel it (`atrm`) only after the new login works.
    (f) Know where **Servarica's VNC/console** login is before starting, and keep a **console password** for `dani`. The console doesn't use SSH, so password login still works there.
-19. **Use fail2ban** with the sshd jail on port <ssh-port-in-rules>, backend `systemd`, `bantime 1h`, rising to repeat-offender bans. Add Dani's home IP and the tailnet range `100.64.0.0/10` to `ignoreip` so she can't ban herself. (CrowdSec is the alternative. See Q4.)
+19. **Use fail2ban** with the sshd jail on port <ssh-port>, backend `systemd`, `bantime 1h`, rising to repeat-offender bans. Add Dani's home IP and the tailnet range `100.64.0.0/10` to `ignoreip` so she can't ban herself. (CrowdSec is the alternative. See Q4.)
 
 ## 4. CapRover specifics
 20. **Ports:**
 - **80/443:** public (nginx).
-- **<setup-port>:** first-setup dashboard only. Block it publicly in DOCKER-USER **right after** setup. After that, reach the dashboard only at `captain.bots.ac` over HTTPS, with the nginx tailnet-only allowlist from rule 13.
+- **<setup-port>:** first-setup dashboard only. Block it publicly in DOCKER-USER **right after** setup. After that, reach the dashboard only at `captain.dev.bots.ac` over HTTPS, with the nginx allowlist from rule 13 (tailnet plus auto-refreshed GitHub Actions IP ranges). Decision (Dani 2026-10-16): dashboard hostname is `captain.dev.bots.ac`.
 - **<registry-port>** (registry), **<swarm-gossip-port> tcp/udp**, **<vxlan-port>/udp** and **<swarm-mgmt-port>/tcp** (swarm): **never public**. This is a single-node swarm and needs none of them from outside.
 21. **Change the default password `captain42` on first login, before anything else.** Store the new one in 1Password. Turn on CapRover Pro's 2FA/OTP right away.
-22. **Turn on HTTPS for the root domain and "Force HTTPS"** before deploying any app. Use a wildcard DNS record `*.bots.ac → server IP`. Each app gets its own Let's Encrypt cert.
+22. **Turn on HTTPS for the root domain and "Force HTTPS"** before deploying any app. Keep the wildcard DNS record `*.bots.ac → server IP`, and also add per-app records plus an apex record for `bots.ac`. Guard: CapRover's catch-all must return 404 for unknown hostnames. CapRover root stays `dev.bots.ac` (`*.dev.bots.ac`). Each app gets its own Let's Encrypt cert. Decision (Dani 2026-10-16).
 23. **CapRover's Docker install vs firewall:** Docker installs its own iptables chains on start and can bypass or clash with UFW. Two rules here. Install Docker *first* (from Docker's apt repo, version per CapRover docs). Then put the DOCKER-USER rules (rule 8) in place **before** running the CapRover container. Then run `nmap` again (rule 11). After **every Docker upgrade or reboot**, check that `iptables -L DOCKER-USER` still has the drop rule. A Beszel/Kuma check or a small systemd timer should alert if it's missing.
 
 ## 5. Postgres (legacy audiovault)
-24. **Postgres listens only on 127.0.0.1** (and the docker bridge if CapRover apps need it; then restrict access in `pg_hba.conf` by subnet). UFW denies <pg-port> publicly. **Check right now, in plan step 1, whether <pg-port> is open to the internet.** If it is, that's the first fix, before anything else.
+24. **Postgres listens on 127.0.0.1 plus the tailnet IP only** (and the docker bridge if CapRover apps need it; then restrict access in `pg_hba.conf` to localhost and the tailnet range). UFW denies <pg-port> publicly. Take a fresh `pg_dump` before changing listen addresses or `pg_hba.conf`. **Check right now, in plan step 1, whether <pg-port> is open to the internet.** If it is, that's the first fix, before anything else. Decision (Dani 2026-10-16).
 25. Leave the audiovault service and its Postgres alone (native, outside CapRover) until it has a tested backup. Moving them into CapRover is a separate, later plan.
 
 ## 6. Backups (Backrest/restic)
 26. **What gets backed up:**
-- `pg_dump -Fc` of each Postgres DB, run nightly **before** the restic job. Dumps are what we restore from. Copying the volume of a running DB isn't safe.
+- `pg_dump -Fc` of each Postgres DB, run nightly **before** the restic job. Dumps are what we restore from. Copying the volume of a running DB isn't safe. Include the bots.ac app DB and its attachments.
 - GlitchTip's Postgres, dumped the same way.
 - `/captain/data` (CapRover config and app volumes) for Kuma, Readeck, Homepage config, Backrest config, Gotify/ntfy and Beszel.
 - `/etc` (ufw, ssh, samba, cockpit).
 - The Samba share folders (**not** `/srv/timemachine`).
 - Syncthing config. The synced data only if the Mac isn't the main copy.
+- **Always keep** the Grok Bot box copy at `~/backups/grokbot` on the server. That copy is never dropped.
 
-**Excluded:** Docker images, caches, `/var/lib/docker/overlay2`, and logs.
-27. **Off the box = rsync to Dani's Mac, then iCloud (decision 2026-10-16; replaces Backblaze B2).** Backrest/restic writes an encrypted local repo on the server (e.g. `/srv/restic-repo`). The Mac then **pulls** that repo with rsync over SSH across Tailscale into a folder inside iCloud Drive. iCloud carries it off-site, and Time Machine also versions it.
+**Excluded:** Docker images, caches, `/var/lib/docker/overlay2`, and logs. **Dropped:** R2 / age-to-R2 as a backup target (Decision Dani 2026-10-16).
+27. **Off the box = rsync to Dani's Mac, then iCloud (decision 2026-10-16; replaces Backblaze B2 and R2).** Backrest/restic writes an encrypted local repo on the server (e.g. `/srv/restic-repo`). The Mac then **pulls** that repo with rsync over SSH across Tailscale into a folder inside iCloud Drive. iCloud carries it off-site, and Time Machine also versions it.
 - **27a. Copy the restic repo only.** Never rsync live Postgres files. Copy only the encrypted restic repo, which holds the `pg_dump` files (rule 26). Restic encrypts everything except credentials, and the repo is just a directory of files ([restic docs](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html)). So the copy on Apple's servers is ciphertext.
 - **27b. Direction: the Mac pulls (★).** A launchd job on the Mac runs `rsync -a --partial` from `bot-backup@<tailnet-name>:` into the iCloud folder. On the server, that Mac key's `authorized_keys` line is `command="rrsync -ro /srv/restic-repo",restrict,from="100.64.0.0/10" ssh-ed25519 …`. This makes the key read-only, limited to that one folder, and rsync-only ([rrsync(1)](https://man7.org/linux/man-pages/man1/rrsync.1.html), [serverfault](https://serverfault.com/questions/965053/restricting-a-ssh-key-to-only-allow-rsync-file-transfer)). The server holds **no** credentials for the Mac, so a hacked server can't wipe the Mac copy. The fallback is the server pushing to the Mac's Remote Login with `rrsync -wo -no-del` on the Mac key. That needs SSH open on the Mac, so it's second choice. See Q-B.
 - **27c. Timing.** Pull at **05:00 ET**, after the 03:30 restic job and the weekly `check`. Don't pull while a backup or prune is running: either check for restic's lock first, or skip if the Backrest job is unfinished. restic writes new pack files and doesn't edit old ones, so incremental rsync stays small. That's my inference from how the repo is laid out, not something I checked in the docs. Use `--delete` only so that `prune` can free space. Time Machine (27f) keeps older versions in case a bad sync deletes files.
@@ -187,13 +190,13 @@ They go into CapRover as **app environment variables** by hand or with `op` CLI.
 | 1 | Read-only audit: `ss -tulpn`, `ufw status`, `ip6tables -S`, Postgres listen address, `timedatectl`, disk, Servarica console login works | List of open ports saved | n/a |
 | 2 | First full backup of audiovault + Postgres (`pg_dump`) copied off the box | Restore it into a temp DB | n/a |
 | 3 | Tailscale install + join, key expiry turned off | Ping from Mac on 100.x | `tailscale down` |
-| 4 | SSH hardening (rules 16–19) with the lockout routine | Fresh login on <ssh-port-in-rules> with key; password refused | Undo the sshd override from a still-open session or the console |
+| 4 | SSH hardening (rules 16–19) with the lockout routine | Fresh login on <ssh-port> with key; password refused | Undo the sshd override from a still-open session or the console |
 | 5 | UFW on (rule 6–7, 10), with `at` auto-undo | nmap from outside | Auto `ufw disable` |
-| 6 | Lock Postgres to localhost (rule 24) | nmap shows <pg-port> closed; app still works | Restore old `postgresql.conf` |
+| 6 | Lock Postgres to localhost plus the tailnet IP (rule 24), after a fresh `pg_dump` | nmap shows <pg-port> closed; app still works over localhost/tailnet | Restore old `postgresql.conf` / `pg_hba.conf` |
 | 7 | Swap, journald cap, timesyncd, unattended-upgrades | `swapon`, `timedatectl` | Remove the files |
 | 8 | Install Docker + daemon.json log limits | `docker info` | `apt remove docker-ce` |
 | 9 | DOCKER-USER / ufw-docker rules | `iptables -L DOCKER-USER` | Restore the saved rules |
-| 10 | Install CapRover → change `captain42` → 2FA → HTTPS + Force HTTPS → block <setup-port> | Dashboard only at captain.bots.ac from the tailnet; nmap clean | Stop/remove the captain container (apps not deployed yet) |
+| 10 | Install CapRover → change `captain42` → 2FA → HTTPS + Force HTTPS → block <setup-port> → dashboard allowlist (tailnet + GitHub Actions IPs) | Dashboard only at captain.dev.bots.ac from the tailnet or CI ranges; nmap clean | Stop/remove the captain container (apps not deployed yet) |
 | 11 | Gotify/ntfy, then Kuma (with the external check), then Beszel | Test alert arrives on phone | Remove the app |
 | 12 | Backrest + nightly jobs + **first restore test** | Restore works | Remove the app |
 | 13 | Homepage, Readeck, GlitchTip (one per day) | Memory under the cap 24 h later | Remove the app |
@@ -224,7 +227,7 @@ After each step: run nmap from outside, add a change-log entry, and wait a day b
 | A4 | Servarica gives a web VNC/console login (chosen as lockout fallback, Q3) | **100% / confirmed** |
 | A5 | Dani will make a console password for `dani` and keep it in 1Password (Q3) | **100% / confirmed** |
 | A6 | Keep IPv6 on and mirror every firewall rule in ip6tables (Q7); whether the box already has a public IPv6 address is still unverified | 65% (address); policy **100% / confirmed** |
-| A7 | DNS for bots.ac can take a wildcard `*.bots.ac` A record | 85% |
+| A7 | DNS keeps `*.bots.ac`, plus per-app and apex records; CapRover catch-all returns 404 (premortem Q2, decided) | **100% / decided** |
 | A8 | CapRover Pro includes 2FA for the dashboard | 80% |
 | A9 | Off-box copy = Mac pull + iCloud (Dani's decision); B2 dropped (Q-B) | **100% / confirmed** |
 | A17 | Dani's MacBook is plugged in and asleep (not shut down) most nights, so the 05:00 wake works (Q-E) | **100% / confirmed** |
@@ -244,7 +247,7 @@ After each step: run nmap from outside, add a change-log entry, and wait a day b
 ## 15. Questions for Dani (★ = recommended) — all ANSWERED 2026-10-16 4:53 AM ET ("Yes, use all recommended")
 - **Q1 (A3, security/data):** **ANSWERED ★** Close Postgres <pg-port> first, before anything else, after a fresh dump. (Was: a ★ / b CapRover install / c Leave it)
 - **Q2 (A14, security):** **ANSWERED ★** A `bot` user, own key, sudo only for read-only commands. (Was: a ★ / b Dani's account / c No bot SSH)
-- **Q3 (A4/A5, security):** **ANSWERED ★** Public key-only SSH on <ssh-port-in-rules> + Servarica console + a console password in 1Password. (Was: a ★ / b Tailscale-only / c Console only)
+- **Q3 (A4/A5, security):** **ANSWERED ★** Public key-only SSH on <ssh-port> + Servarica console + a console password in 1Password. (Was: a ★ / b Tailscale-only / c Console only)
 - **Q4 (security):** **ANSWERED ★** fail2ban (simple, local). (Was: a ★ / b CrowdSec / c Neither)
 - **Q5 (A10, public/money):** **ANSWERED ★** Free Healthchecks.io/UptimeRobot plus heartbeat. (Was: a ★ / b Second Kuma on RackNerd / c Both)
 - **Q6:** **ANSWERED** 2026-10-16: Mac + iCloud. See Q-B.
