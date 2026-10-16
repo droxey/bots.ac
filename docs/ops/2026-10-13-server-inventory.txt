@@ -1,0 +1,67 @@
+== OS
+PRETTY_NAME="Ubuntu 24.04.5 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+VERSION="24.04.5 LTS (Noble Numbat)"
+Linux api.audiovau.lt 6.8.0-139-generic #139-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 03:52:05 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+api.audiovau.lt
+== CPU
+16
+CPU(s):                                  16
+Model name:                              AMD EPYC 7663 56-Core Processor
+== RAM
+               total        used        free      shared  buff/cache   available
+Mem:            15Gi       3.3Gi       2.3Gi        23Mi        10Gi        12Gi
+Swap:             0B          0B          0B
+== DISK
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1       464G   14G  451G   3% /
+/dev/sda16      881M  117M  703M  15% /boot
+/dev/sda15      105M  6.2M   99M   6% /boot/efi
+== UPTIME
+ 15:31:13 up 30 days, 19:53,  3 users,  load average: 0.13, 0.11, 0.09
+== DOCKER
+sudo: docker: command not found
+== NODES
+sudo: docker: command not found
+== SERVICES
+sudo: docker: command not found
+== PS
+sudo: docker: command not found
+== VOLUMES
+sudo: docker: command not found
+== VOLUME SIZES
+== NETWORKS
+sudo: docker: command not found
+== CAPTAIN
+du: cannot access '/captain': No such file or directory
+ls: cannot access '/captain': No such file or directory
+ls: cannot access '/captain/data': No such file or directory
+== CAPTAIN CONFIG (non-secret)
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/captain/data/config-captain.json'
+== SYSTEMD
+  audiovault-api.service      loaded active running Audio Vault Go API
+  nginx.service               loaded active running A high performance web server and a reverse proxy server
+  postgresql@16-main.service  loaded active running PostgreSQL Cluster 16-main
+  tailscaled.service          loaded active running Tailscale node agent
+active
+active
+active
+active
+== PG
+PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+postgres|7503 kB
+audiovault|9671 kB
+template1|7567 kB
+template0|7345 kB
+audiovault_ci|55 MB
+Ver Cluster Port Status Owner    Data directory              Log file
+16  main    <pg-port> online postgres /var/lib/postgresql/16/main /var/log/postgresql/postgresql-16-main.log
+== UFW
+Status: inactive
+== CAPTAIN BACKUP/NGINX
+sudo: docker: command not found
+== VOLUME HOST SIZES
+== DOCKER INSTALL

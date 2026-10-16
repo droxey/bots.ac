@@ -1,0 +1,71 @@
+# linux-doctor
+# system: Ubuntu 24.04 · kernel 6.8.0-139-generic · 16 core(s) · up 742h 18m
+# score: 61/100
+# score-breakdown: -15 services/failed | -8 journald/large | -8 updates/pending | -8 reboot/required
+# since: 0 new, 0 fixed, 27 unchanged
+# checks: 41 (8 skipped)
+# summary: 1 high, 3 medium, 23 info
+
+high	1	1 service failed to start
+detail	1	These 1 service are in a failed state: `audiovault-health-check.service` (system). A failed service usually means a broken package, a bad configuration, or a hook that errored.
+fix	1	Inspect one with `systemctl status audiovault-health-check.service` (or `systemctl --user status audiovault-health-check.service` for user services). If it is not something you need, disable it with `systemctl disable audiovault-health-check.service`.
+medium	2	System journal is large
+detail	2	The systemd journal is using 2.3 GB. It grows until it hits its size limit, and a runaway journal is a common cause of full disks.
+fix	2	Trim it now with `sudo journalctl --vacuum-size=500M`, then cap it permanently: add `SystemMaxUse=500M` to /etc/systemd/journald.conf and run `sudo systemctl restart systemd-journald`.
+medium	3	29 updates available
+detail	3	There are 29 package updates waiting. A large backlog means security fixes are also pending.
+fix	3	Apply them with: `sudo apt upgrade`
+medium	4	A reboot is required
+detail	4	A newer kernel (6.8.0-146-generic) is installed, but the system is running 6.8.0-139-generic. /var/run/reboot-required indicates a restart is needed to finish applying updates.
+fix	4	Reboot when convenient to activate the new kernel. Check what changed after booting with `journalctl -b -1 | head`.
+info	5	No filesystem errors in the recent log
+detail	5	No EXT4/BTRFS/XFS I/O errors were seen in the last 500 kernel messages. This does not guarantee the disk is healthy, but there is no active filesystem corruption signal.
+info	6	No out-of-memory kills detected
+detail	6	The kernel has not killed any process for running out of memory in the recent log window. If the system recently froze, this confirms it was not an OOM kill.
+info	7	Top memory consumers
+detail	7	The largest memory users right now are listed below. This is normal unless the system is under pressure.
+info	8	Temperature check skipped
+detail	8	No CPU thermal zones were found under /sys/class/thermal, so temperatures could not be checked. This is normal in containers and virtual machines.
+info	9	Scheduled tasks look healthy
+detail	9	All enabled timers are scheduled to run.
+info	10	No container runtime installed
+detail	10	Neither Podman nor Docker is installed. Containers are optional — install one if you want to run containerized applications.
+fix	10	sudo apt install podman. Podman is daemonless and works with rootless containers out of the box.
+info	11	Container storage check skipped
+detail	11	Neither `podman` nor `docker` is installed, so container storage could not be checked.
+info	12	Firewall is active
+detail	12	A firewall is running, which is the recommended baseline for a desktop system.
+info	13	AppArmor is active
+detail	13	AppArmor is enforcing application confinement, the standard hardening on Debian/Ubuntu-family systems.
+info	14	Legacy BIOS boot
+detail	14	This system boots in legacy BIOS mode, so Secure Boot (a UEFI feature) does not apply. Modern firmware is a good upgrade path if you want Secure Boot and a TPM.
+info	15	No full-disk encryption detected
+detail	15	No LUKS or crypt devices were found. If this drive is lost or stolen, the data on it can be read directly.
+fix	15	Re-encrypting in place is risky; the clean path is to back up, then reinstall with disk encryption enabled (LUKS). For laptops this is strongly recommended.
+info	16	SSH server is configured reasonably
+detail	16	Root login over SSH is restricted and password authentication is off.
+info	17	TLS certificates are healthy
+detail	17	2 certificates checked, all with more than 30 days left.
+info	18	Risky services are firewalled
+detail	18	These services listen on non-loopback interfaces but a firewall is active, so exposure is controlled: PostgreSQL :<pg-port>, PostgreSQL :<pg-port>. Verify the firewall rules actually restrict them if this machine faces the internet.
+info	19	Network and DNS look healthy
+detail	19	There is a default route and the system resolver works (kernel.org resolved in 19ms).
+info	20	Time is synchronized
+detail	20	The system clock is kept in sync over the network (NTP).
+info	21	Firmware updates not checked
+detail	21	The fwupd service is not running, so we could not look for firmware updates.
+fix	21	Start it with: `sudo systemctl enable --now fwupd`
+info	22	Package manager is healthy
+detail	22	No broken packages or locks were found. apt/dpkg is ready for updates.
+info	23	SMART disk health not checked (smartmontools missing)
+detail	23	`smartctl` is not installed, so disk SMART health could not be checked.
+fix	23	Install smartmontools (sudo apt install smartmontools) and re-run.
+info	24	No hardware errors logged
+detail	24	No machine check exceptions or corrected memory errors were found in the last 7 days of kernel logs.
+info	25	No backup or snapshot tool detected
+detail	25	No backup tool (Borg, Restic, Timeshift, …) and no snapshot system (Snapper, Timeshift) was found. If this disk fails, the data on it is gone.
+fix	25	Install one, e.g. `sudo dnf install timeshift` (Fedora/Bazzite), `sudo apt install timeshift` (Debian/Ubuntu), or a file-level tool like Borg (`sudo dnf install borgbackup`) and point it at an external disk.
+info	26	No orphaned packages
+detail	26	No unneeded/orphaned packages were found. The package database is tidy.
+info	27	Boot partition looks healthy
+detail	27	The boot partition has free space and a bootloader config is present.
